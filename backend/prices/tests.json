@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "GET prices returns all keys",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {"proflist_m2": 650},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

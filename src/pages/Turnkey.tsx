@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import Layout from '@/components/Layout';
 import { Button } from '@/components/ui/button';
 import Icon from '@/components/ui/icon';
@@ -6,7 +7,7 @@ import Icon from '@/components/ui/icon';
 const STEPS = [
   { icon: 'FileText', title: 'Заявка', desc: 'Оставляете данные или считаете смету в калькуляторе' },
   { icon: 'Ruler', title: 'Замер', desc: 'Инженер выезжает на участок бесплатно в радиусе 25 км' },
-  { icon: 'FileSignature', title: 'Договор', desc: 'Фиксируем цену, сроки и спецификацию материалов' },
+  { icon: 'FileSignature', title: 'Оплата / Договор', desc: 'Фиксируем цену, сроки и спецификацию материалов. Принимаем оплату официально — при расчёте на участке выдаём квитанцию по форме КО-1 (Приходный кассовый ордер) из 1С.' },
   { icon: 'Factory', title: 'Производство', desc: 'Изготавливаем конструкции на собственном цехе' },
   { icon: 'Wrench', title: 'Монтаж', desc: 'Собственные бригады, срок от 3 дней' },
   { icon: 'ClipboardCheck', title: 'Акт приёма', desc: 'Сдаём объект, выдаём гарантию 5 лет' },
@@ -14,6 +15,10 @@ const STEPS = [
 
 const Turnkey = () => (
   <Layout>
+    <Helmet>
+      <title>Работа под ключ — этапы монтажа забора и ворот | Сталь Групп</title>
+      <meta name="description" content="Прозрачный процесс: замер, договор с фиксированной ценой, производство, монтаж, гарантия 5 лет. КО-1 при расчёте на месте." />
+    </Helmet>
     <section className="border-b border-border blueprint-grid">
       <div className="container py-14">
         <h1 className="font-display text-4xl font-bold uppercase tracking-tight md:text-5xl">Работаем под ключ</h1>

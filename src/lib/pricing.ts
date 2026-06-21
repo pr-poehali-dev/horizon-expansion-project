@@ -80,11 +80,20 @@ export type CalcInput = {
   dismantle_meters: number;
 };
 
+export type MaterialLine = {
+  label: string;
+  qty: string;
+  unit: string;
+  cost: number;
+};
+
 export type CalcResult = {
   meta: {
     clean_fence_length: number;
     posts_count: number;
+    lags_total_m: number;
   };
+  materials_list: MaterialLine[];
   client_view: {
     materials_sum: number;
     works_sum: number;
@@ -144,12 +153,83 @@ export function calculate1C(input: CalcInput, prices: PriceList): CalcResult {
   const ALL_WORKS_TOTAL =
     fence_work_cost + gates_work_cost + wickets_work_cost + extra_work_cost;
 
-  // ШАГ 4. Финальная сборка
+  // ШАГ 4. Детализированный список материалов
+  const materials_list: MaterialLine[] = [];
+
+  // Столбы
+  const posts_cost = posts_needed * prices.post_60x60;
+  materials_list.push({
+    label: 'Столбы металлические 60×60',
+    qty: String(posts_needed),
+    unit: 'шт.',
+    cost: posts_cost,
+  });
+
+  // Лаги
+  const lags_cost = total_lags_meters * prices.lag_m;
+  materials_list.push({
+    label: 'Лаги профиль 40×20',
+    qty: total_lags_meters.toFixed(1),
+    unit: 'пог. м',
+    cost: lags_cost,
+  });
+
+  // Полотно
+  if (input.filling_type === 'proflist') {
+    const area = clean_length * input.height;
+    materials_list.push({
+      label: `Профнастил (h=${input.height} м)`,
+      qty: area.toFixed(1),
+      unit: 'м²',
+      cost: area * prices.proflist_m2,
+    });
+  } else if (input.filling_type === 'shtaket') {
+    const planks = Math.round(clean_length * 7);
+    materials_list.push({
+      label: `Евроштакетник (h=${input.height} м)`,
+      qty: String(planks),
+      unit: 'шт.',
+      cost: planks * input.height * prices.shtaket_m,
+    });
+  } else {
+    const area = clean_length * input.height;
+    materials_list.push({
+      label: `3D-сетка Гиттер (h=${input.height} м)`,
+      qty: area.toFixed(1),
+      unit: 'м²',
+      cost: area * prices.proflist_m2 * 0.95,
+    });
+  }
+
+  // Ворота
+  if (input.gates_count > 0) {
+    const gate_price = input.gates_has_auto ? prices.gate_auto_price : prices.gate_mech_price;
+    materials_list.push({
+      label: input.gates_has_auto ? 'Откатные ворота с автоматикой' : 'Откатные ворота (механика)',
+      qty: String(input.gates_count),
+      unit: 'шт.',
+      cost: input.gates_count * gate_price,
+    });
+  }
+
+  // Калитки
+  if (input.wickets_count > 0) {
+    materials_list.push({
+      label: 'Калитка в раме',
+      qty: String(input.wickets_count),
+      unit: 'шт.',
+      cost: input.wickets_count * prices.wicket_price,
+    });
+  }
+
+  // ШАГ 5. Финальная сборка
   return {
     meta: {
       clean_fence_length: clean_length,
       posts_count: posts_needed,
+      lags_total_m: total_lags_meters,
     },
+    materials_list,
     client_view: {
       materials_sum: Math.round(ALL_MATERIALS_TOTAL),
       works_sum: Math.round(ALL_WORKS_TOTAL),

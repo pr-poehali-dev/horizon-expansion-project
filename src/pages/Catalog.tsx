@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import Layout from '@/components/Layout';
 import { Button } from '@/components/ui/button';
 import Icon from '@/components/ui/icon';
@@ -19,6 +20,10 @@ const ITEMS = [
 
 const Catalog = () => (
   <Layout>
+    <Helmet>
+      <title>Каталог заборов от производителя: цены за метр с установкой — Сталь Групп</title>
+      <meta name="description" content="Готовые решения: заборы из профлиста, евроштакетника, 3D-сетки, откатные ворота, навесы. Цены от производителя в Люберцах." />
+    </Helmet>
     <section className="border-b border-border blueprint-grid">
       <div className="container py-14">
         <h1 className="font-display text-4xl font-bold uppercase tracking-tight md:text-5xl">Каталог решений</h1>
