@@ -12,7 +12,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { loadPrices, formatRub } from '@/lib/pricing';
+import { loadPrices, formatRub, calculate1C, CalcInput } from '@/lib/pricing';
 
 const WEBHOOK_URL = 'https://example.com/webhook';
 
@@ -24,23 +24,31 @@ const FILLINGS = [
   { id: 'gitter', label: '3D-сетка Гиттер', icon: 'Grid3x3', desc: 'Сварная сетка' },
 ] as const;
 
-type FillingId = (typeof FILLINGS)[number]['id'];
+type FillingId = CalcInput['filling_type'];
+
+const FILLING_LABELS: Record<FillingId, string> = {
+  proflist: 'Профлист',
+  shtaket: 'Евроштакетник',
+  gitter: '3D-сетка Гиттер',
+};
 
 const Calculator = () => {
   const prices = useMemo(() => loadPrices(), []);
 
   // Шаг 1: геометрия
-  const [lTotal, setLTotal] = useState(50);
-  const [nGate, setNGate] = useState(1);
-  const [wGate, setWGate] = useState(4);
-  const [nWicket, setNWicket] = useState(1);
-  const [wWicket, setWWicket] = useState(1);
+  const [totalMeters, setTotalMeters] = useState(50);
+  const [gatesCount, setGatesCount] = useState(1);
+  const [gatesWidth, setGatesWidth] = useState(4);
+  const [gatesHasAuto, setGatesHasAuto] = useState(true);
+  const [wicketsCount, setWicketsCount] = useState(1);
+  const [wicketsWidth, setWicketsWidth] = useState(1);
 
   // Шаг 2: материалы
   const [height, setHeight] = useState(2.0);
-  const [filling, setFilling] = useState<FillingId>('proflist');
-  const [demolition, setDemolition] = useState(false);
-  const [generator, setGenerator] = useState(false);
+  const [fillingType, setFillingType] = useState<FillingId>('proflist');
+  const [lagsRows, setLagsRows] = useState(2);
+  const [generatorNeeded, setGeneratorNeeded] = useState(false);
+  const [dismantleMeters, setDismantleMeters] = useState(0);
 
   // Форма
   const [name, setName] = useState('');
@@ -48,53 +56,58 @@ const Calculator = () => {
   const [success, setSuccess] = useState(false);
   const [sending, setSending] = useState(false);
 
-  const lClean = Math.max(0, lTotal - wGate * nGate - wWicket * nWicket);
+  const input: CalcInput = {
+    total_meters: totalMeters,
+    height,
+    filling_type: fillingType,
+    lags_rows: lagsRows,
+    gates_count: gatesCount,
+    gates_width: gatesWidth,
+    gates_has_auto: gatesHasAuto,
+    wickets_count: wicketsCount,
+    wickets_width: wicketsWidth,
+    generator_needed: generatorNeeded,
+    dismantle_meters: dismantleMeters,
+  };
 
-  // Стоимость материалов забора
-  const fillingCost = useMemo(() => {
-    if (filling === 'proflist') return lClean * height * prices.price_proflist_m2;
-    if (filling === 'shtaket') return lClean * prices.price_shtaket_m * height;
-    // гиттер считаем по м2 как профлист с небольшим коэффициентом
-    return lClean * height * (prices.price_proflist_m2 * 0.95);
-  }, [filling, lClean, height, prices]);
+  const result = useMemo(() => calculate1C(input, prices), [
+    totalMeters, height, fillingType, lagsRows, gatesCount, gatesWidth,
+    gatesHasAuto, wicketsCount, wicketsWidth, generatorNeeded, dismantleMeters, prices,
+  ]);
 
-  // Столбы: ~ каждые 2.5 метра + по краям
-  const postsCount = lClean > 0 ? Math.ceil(lClean / 2.5) + 1 : 0;
-  const postsCost = postsCount * prices.price_post_60x60;
-
-  const gatesCost = nGate * prices.price_gate_auto;
-
-  const materialsCost = fillingCost + postsCost + gatesCost;
-
-  // Монтаж
-  const installRate = prices.work_rate_base * prices.margin_coeff;
-  const demolitionCost = demolition ? lTotal * 300 : 0;
-  const generatorCost = generator ? 2000 : 0;
-  const installCost = installRate * lClean + demolitionCost + generatorCost;
-
-  const total = materialsCost + installCost;
+  const { meta, client_view } = result;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !phone) return;
     setSending(true);
+
+    const report =
+      `🔧 Новая смета — Сталь Групп\n\n` +
+      `Имя: ${name}\n` +
+      `Телефон: ${phone}\n\n` +
+      `Периметр: ${totalMeters} м\n` +
+      `Высота: ${height} м\n` +
+      `Заполнение: ${FILLING_LABELS[fillingType]}\n` +
+      `Ряды лаг: ${lagsRows}\n` +
+      `Ворота: ${gatesCount} шт × ${gatesWidth} м (${gatesHasAuto ? 'автоматика' : 'механика'})\n` +
+      `Калитки: ${wicketsCount} шт × ${wicketsWidth} м\n` +
+      `Генератор: ${generatorNeeded ? 'да' : 'нет'}\n` +
+      `Демонтаж: ${dismantleMeters} м\n\n` +
+      `Расчетная (чистая) длина полотна: ${meta.clean_fence_length} м.\n` +
+      `Столбов: ${meta.posts_count} шт\n\n` +
+      `Материалы: ${formatRub(client_view.materials_sum)}\n` +
+      `Монтаж: ${formatRub(client_view.works_sum)}\n` +
+      `ИТОГО под ключ: ${formatRub(client_view.grand_total)}`;
+
     const payload = {
       name,
       phone,
-      params: {
-        lTotal,
-        nGate,
-        wGate,
-        nWicket,
-        wWicket,
-        lClean,
-        height,
-        filling,
-        demolition,
-        generator,
-      },
-      total,
+      report,
+      input,
+      result,
     };
+
     try {
       await fetch(WEBHOOK_URL, {
         method: 'POST',
@@ -134,7 +147,7 @@ const Calculator = () => {
             Инженерный калькулятор
           </h1>
           <p className="mt-3 max-w-2xl text-muted-foreground">
-            Расчёт по реальным расценкам производства. Смета обновляется мгновенно.
+            Расчёт по алгоритму производства (1С). Смета обновляется мгновенно.
           </p>
         </div>
       </section>
@@ -152,32 +165,57 @@ const Calculator = () => {
               <div className="grid gap-5 sm:grid-cols-2">
                 <div>
                   <Label className="mb-1.5 block">Общая длина периметра, м</Label>
-                  {numInput(lTotal, setLTotal)}
+                  {numInput(totalMeters, setTotalMeters)}
                 </div>
+                <div className="flex items-center rounded-md border border-primary/30 bg-primary/5 px-4 py-2">
+                  <div>
+                    <span className="text-sm text-muted-foreground">Чистая длина полотна</span>
+                    <div className="font-display text-2xl font-bold text-primary">{meta.clean_fence_length.toFixed(1)} м</div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="mb-1.5 block">Ворота, шт</Label>
-                    {numInput(nGate, setNGate)}
+                    {numInput(gatesCount, setGatesCount)}
                   </div>
                   <div>
                     <Label className="mb-1.5 block">Ширина ворот, м</Label>
-                    {numInput(wGate, setWGate, 0.1)}
+                    {numInput(gatesWidth, setGatesWidth, 0.1)}
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="mb-1.5 block">Калитки, шт</Label>
-                    {numInput(nWicket, setNWicket)}
+                    {numInput(wicketsCount, setWicketsCount)}
                   </div>
                   <div>
                     <Label className="mb-1.5 block">Ширина калитки, м</Label>
-                    {numInput(wWicket, setWWicket, 0.1)}
+                    {numInput(wicketsWidth, setWicketsWidth, 0.1)}
                   </div>
                 </div>
-                <div className="flex items-center rounded-md border border-primary/30 bg-primary/5 px-4">
-                  <div>
-                    <span className="text-sm text-muted-foreground">Чистая длина полотна</span>
-                    <div className="font-display text-2xl font-bold text-primary">{lClean.toFixed(1)} м</div>
+
+                <div className="sm:col-span-2">
+                  <Label className="mb-2 block">Тип ворот</Label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setGatesHasAuto(false)}
+                      className={`flex-1 rounded-md border px-4 py-2.5 font-display font-medium transition-colors ${
+                        !gatesHasAuto ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:border-primary'
+                      }`}
+                    >
+                      Механика
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGatesHasAuto(true)}
+                      className={`flex-1 rounded-md border px-4 py-2.5 font-display font-medium transition-colors ${
+                        gatesHasAuto ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:border-primary'
+                      }`}
+                    >
+                      Автоматика
+                    </button>
                   </div>
                 </div>
               </div>
@@ -195,6 +233,7 @@ const Calculator = () => {
                 {HEIGHTS.map((h) => (
                   <button
                     key={h}
+                    type="button"
                     onClick={() => setHeight(h)}
                     className={`rounded-md border px-4 py-2 font-display font-medium transition-colors ${
                       height === h
@@ -212,16 +251,33 @@ const Calculator = () => {
                 {FILLINGS.map((f) => (
                   <button
                     key={f.id}
-                    onClick={() => setFilling(f.id)}
+                    type="button"
+                    onClick={() => setFillingType(f.id)}
                     className={`flex flex-col items-start rounded-md border p-4 text-left transition-colors ${
-                      filling === f.id
+                      fillingType === f.id
                         ? 'border-primary bg-primary/10'
                         : 'border-border bg-background hover:border-primary'
                     }`}
                   >
-                    <Icon name={f.icon} size={24} className={filling === f.id ? 'text-primary' : 'text-muted-foreground'} />
+                    <Icon name={f.icon} size={24} className={fillingType === f.id ? 'text-primary' : 'text-muted-foreground'} />
                     <span className="mt-2 font-display font-semibold">{f.label}</span>
                     <span className="text-xs text-muted-foreground">{f.desc}</span>
+                  </button>
+                ))}
+              </div>
+
+              <Label className="mb-2 block">Поперечины (ряды лаг)</Label>
+              <div className="mb-6 flex gap-2">
+                {[2, 3].map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setLagsRows(r)}
+                    className={`rounded-md border px-5 py-2 font-display font-medium transition-colors ${
+                      lagsRows === r ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:border-primary'
+                    }`}
+                  >
+                    {r} ряда
                   </button>
                 ))}
               </div>
@@ -229,15 +285,17 @@ const Calculator = () => {
               <Label className="mb-2 block">Дополнительные услуги</Label>
               <div className="space-y-3">
                 <label className="flex cursor-pointer items-center gap-3 rounded-md border border-border bg-background p-3">
-                  <Checkbox checked={demolition} onCheckedChange={(v) => setDemolition(!!v)} />
-                  <span className="flex-1">Демонтаж старого забора</span>
-                  <span className="text-sm text-muted-foreground">+300 ₽/м</span>
-                </label>
-                <label className="flex cursor-pointer items-center gap-3 rounded-md border border-border bg-background p-3">
-                  <Checkbox checked={generator} onCheckedChange={(v) => setGenerator(!!v)} />
+                  <Checkbox checked={generatorNeeded} onCheckedChange={(v) => setGeneratorNeeded(!!v)} />
                   <span className="flex-1">Генератор на участок</span>
                   <span className="text-sm text-muted-foreground">+2 000 ₽</span>
                 </label>
+                <div className="flex items-center gap-3 rounded-md border border-border bg-background p-3">
+                  <span className="flex-1">Демонтаж старого забора, м</span>
+                  <div className="w-28">
+                    {numInput(dismantleMeters, setDismantleMeters)}
+                  </div>
+                  <span className="text-sm text-muted-foreground">300 ₽/м</span>
+                </div>
               </div>
             </div>
           </div>
@@ -250,19 +308,25 @@ const Calculator = () => {
                 <h3 className="font-display text-lg font-semibold uppercase tracking-wide">Live-Смета</h3>
               </div>
 
-              <div className="space-y-2.5 text-sm">
-                <Row label="Полотно + столбы" value={formatRub(fillingCost + postsCost)} />
-                <Row label={`Ворота (${nGate} шт)`} value={formatRub(gatesCost)} />
-                <div className="my-2 border-t border-border" />
-                <Row label="Материалы" value={formatRub(materialsCost)} bold />
-                <Row label={`Монтаж · ${lClean.toFixed(1)} м`} value={formatRub(installRate * lClean)} />
-                {demolition && <Row label="Демонтаж" value={formatRub(demolitionCost)} />}
-                {generator && <Row label="Генератор" value={formatRub(generatorCost)} />}
+              <div className="mb-4 space-y-2 rounded-md bg-secondary/50 p-3 text-sm">
+                <Row label="Чистая длина полотна" value={`${meta.clean_fence_length.toFixed(1)} м`} />
+                <Row label="Столбов" value={`${meta.posts_count} шт`} />
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Стоимость материалов</span>
+                  <span className="font-display font-semibold">{formatRub(client_view.materials_sum)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Стоимость монтажа</span>
+                  <span className="font-display font-semibold">{formatRub(client_view.works_sum)}</span>
+                </div>
               </div>
 
               <div className="mt-5 rounded-md bg-primary/10 p-4">
-                <span className="text-sm text-muted-foreground">Итого под ключ</span>
-                <div className="font-display text-3xl font-bold text-primary">{formatRub(total)}</div>
+                <span className="text-sm text-muted-foreground">Итоговая сумма под ключ</span>
+                <div className="font-display text-3xl font-bold text-primary">{formatRub(client_view.grand_total)}</div>
               </div>
 
               <form onSubmit={handleSubmit} className="mt-5 space-y-3">
@@ -302,7 +366,7 @@ const Calculator = () => {
             </div>
             <DialogTitle className="text-center font-display text-2xl uppercase">Смета зафиксирована</DialogTitle>
             <DialogDescription className="text-center text-base">
-              Смета успешно отправлена. Инженер перезвонит вам в течение 10 минут.
+              Смета успешно зафиксирована и отправлена. Инженер перезвонит вам в течение 10 минут.
             </DialogDescription>
           </DialogHeader>
           <Button className="rounded-md" onClick={() => setSuccess(false)}>Отлично</Button>
@@ -312,10 +376,10 @@ const Calculator = () => {
   );
 };
 
-const Row = ({ label, value, bold }: { label: string; value: string; bold?: boolean }) => (
+const Row = ({ label, value }: { label: string; value: string }) => (
   <div className="flex items-center justify-between">
-    <span className={bold ? 'font-semibold' : 'text-muted-foreground'}>{label}</span>
-    <span className={bold ? 'font-display font-bold' : ''}>{value}</span>
+    <span className="text-muted-foreground">{label}</span>
+    <span className="font-medium">{value}</span>
   </div>
 );
 
